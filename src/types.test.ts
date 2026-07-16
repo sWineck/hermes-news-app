@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { categorizeArticle, filterArticles, normalizeGdeltArticle } from './types'
+import { categorizeArticle, filterArticles, filterArticlesAdvanced, mergeArticles, normalizeGdeltArticle } from './types'
 
 describe('news data helpers', () => {
   it('categorizes known interest signals', () => {
@@ -15,15 +15,14 @@ describe('news data helpers', () => {
     expect(normalizeGdeltArticle({ title: '', url: 'nope' })).toBeNull()
   })
 
-  it('filters by category and search and sorts newest first', () => {
+  it('supports advanced filtering and deduplicates incoming pool items', () => {
     const items = [
-      { id: '1', title: 'React release', description: 'frontend', source: 'A', url: 'https://a', publishedAt: '2026-07-15T00:00:00Z', category: 'web' as const, tag: 'A' },
-      { id: '2', title: 'TypeScript update', description: 'frontend', source: 'B', url: 'https://b', publishedAt: '2026-07-16T00:00:00Z', category: 'web' as const, tag: 'B' },
+      { id: 'same', title: 'AI agent release', description: 'fresh', source: 'A', url: 'https://a', publishedAt: '2026-07-16T00:00:00Z', category: 'ai' as const, tag: 'A', retrievedAt: '2026-07-16T00:01:00Z' },
+      { id: 'old', title: 'Security archive', description: 'old', source: 'B', url: 'https://b', publishedAt: '2026-07-10T00:00:00Z', category: 'security' as const, tag: 'B', retrievedAt: '2026-07-10T00:01:00Z' },
     ]
-    expect(filterArticles(items, 'typescript', 'web')[0].id).toBe('2')
-    expect(filterArticles(items, '', 'web')[0].id).toBe('2')
-    expect(filterArticles(items, '', 'ai')).toHaveLength(0)
-    expect(filterArticles([{ ...items[0], category: 'other' as const }], '', 'other')).toHaveLength(1)
-    expect(filterArticles(items, '', 'all')).toHaveLength(2)
+    expect(filterArticlesAdvanced(items, { search: 'agent', categories: ['ai'], sources: [], days: 30, sort: 'newest' })).toHaveLength(1)
+    expect(filterArticlesAdvanced(items, { search: '', categories: [], sources: ['B'], days: 30, sort: 'newest' })[0].id).toBe('old')
+    expect(mergeArticles([items[0]], [{ ...items[0], title: 'updated title' }, items[1]])).toHaveLength(2)
+    expect(mergeArticles([items[0]], [{ ...items[0], title: 'updated title' }])[0].title).toBe('updated title')
   })
 })
