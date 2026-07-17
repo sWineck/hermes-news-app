@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { extractImageUrl } from './api'
 import { categorizeArticle, filterArticles, filterArticlesAdvanced, mergeArticles, normalizeGdeltArticle } from './types'
 
 describe('news data helpers', () => {
@@ -13,6 +14,11 @@ describe('news data helpers', () => {
     expect(article?.source).toBe('example.com')
     expect(article?.publishedAt).toBe('2026-07-16T12:00:00.000Z')
     expect(normalizeGdeltArticle({ title: '', url: 'nope' })).toBeNull()
+  })
+
+  it('extracts RSS image metadata without accepting invalid image URLs', () => {
+    expect(extractImageUrl({ url: 'https://cdn.example.com/story.jpg' })).toBe('https://cdn.example.com/story.jpg')
+    expect(extractImageUrl({ url: 'javascript:alert(1)' })).toBeUndefined()
   })
 
   it('supports advanced filtering and deduplicates incoming pool items', () => {
