@@ -94,6 +94,18 @@ function xmlLink(node: Element): string {
   return link?.getAttribute('href') || link?.textContent?.trim() || ''
 }
 
+export function extractImageUrl(value: { url?: string | null; href?: string | null }): string | undefined {
+  const candidate = value.url || value.href || ''
+  return /^https?:\/\//i.test(candidate) ? candidate : undefined
+}
+
+function xmlImageUrl(node: Element): string | undefined {
+  const media = node.querySelector('media\:content, media\:thumbnail, enclosure')
+  const attribute = extractImageUrl({ url: media?.getAttribute('url'), href: media?.getAttribute('href') })
+  if (attribute) return attribute
+  const image = node.querySelector('image, thumbnail')?.textContent?.trim()
+  return extractImageUrl({ url: image })
+}
 export function parseRssXml(xml: string, feed: FeedSource): Article[] {
   if (typeof DOMParser === 'undefined') throw new Error('RSS-Parsing ist in dieser Umgebung nicht verfügbar.')
   const documentXml = new DOMParser().parseFromString(xml, 'text/xml')
@@ -116,6 +128,7 @@ export function parseRssXml(xml: string, feed: FeedSource): Article[] {
       category: feed.channel || categorizeArticle(title, description),
       tag: 'RSS',
       feedId: feed.id,
+      imageUrl: xmlImageUrl(node),
       imageAlt: title,
     }
   }).filter((article): article is Article => Boolean(article))
