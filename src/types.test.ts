@@ -13,6 +13,8 @@ describe('news data helpers', () => {
     const article = normalizeGdeltArticle({ title: 'A headline', url: 'https://example.com/story', domain: 'example.com', seendate: '20260716T120000Z' })
     expect(article?.source).toBe('example.com')
     expect(article?.publishedAt).toBe('2026-07-16T12:00:00.000Z')
+    const normalized = normalizeGdeltArticle({ title: 'Image story', url: 'https://example.com/story', imageurl: 'https://cdn.example.com/story.jpg' })
+    expect(normalized?.imageUrl).toBe('https://cdn.example.com/story.jpg')
     expect(normalizeGdeltArticle({ title: '', url: 'nope' })).toBeNull()
   })
 
