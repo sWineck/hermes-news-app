@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { fetchNews, testFeed } from './api'
-import { migrateArticleCollection, serializeCollection } from './persistence'
+import { migrateArticleCollection, migrateFeedCollection, serializeCollection, serializeFeeds } from './persistence'
 import { Article, categories, categoryMap, demoArticles, FeedSource, FilterOptions, filterArticlesAdvanced, mergeArticles, CategoryId } from './types'
 import './styles.css'
 
@@ -19,6 +19,10 @@ function loadJson<T>(key: string, fallback: T): T {
 
 function loadArticles(key: string, fallback: Article[]): Article[] {
   try { return migrateArticleCollection(JSON.parse(localStorage.getItem(key) || '')) || fallback } catch { return fallback }
+}
+
+function loadFeeds(key: string): FeedSource[] {
+  try { return migrateFeedCollection(JSON.parse(localStorage.getItem(key) || '')) } catch { return [] }
 }
 
 function formatDate(value: string) {
@@ -45,7 +49,7 @@ function App() {
   const [days, setDays] = useState(0)
   const [articles, setArticles] = useState<Article[]>(() => loadArticles(ARTICLE_STORAGE, demoArticles))
   const [favorites, setFavorites] = useState<Article[]>(() => loadArticles(FAVORITE_STORAGE, []))
-  const [feeds, setFeeds] = useState<FeedSource[]>(() => loadJson(FEED_STORAGE, []))
+  const [feeds, setFeeds] = useState<FeedSource[]>(() => loadFeeds(FEED_STORAGE))
   const [status, setStatus] = useState<Status>('idle')
   const [provider, setProvider] = useState('Lokale Vorschau')
   const [error, setError] = useState('')
@@ -77,7 +81,7 @@ function App() {
   useEffect(() => { document.documentElement.dataset.theme = isDark ? 'dark' : 'light'; localStorage.setItem('hermes-news-theme', isDark ? 'dark' : 'light') }, [isDark])
   useEffect(() => { localStorage.setItem(ARTICLE_STORAGE, serializeCollection(articles)) }, [articles])
   useEffect(() => { localStorage.setItem(FAVORITE_STORAGE, serializeCollection(favorites)) }, [favorites])
-  useEffect(() => { localStorage.setItem(FEED_STORAGE, JSON.stringify(feeds)); localStorage.setItem('hermes-news-storage-version', '2') }, [feeds])
+  useEffect(() => { localStorage.setItem(FEED_STORAGE, serializeFeeds(feeds)); localStorage.setItem('hermes-news-storage-version', '2') }, [feeds])
   useEffect(() => { if (lastSuccessfulRefresh) localStorage.setItem(REFRESH_STORAGE, JSON.stringify(lastSuccessfulRefresh)) }, [lastSuccessfulRefresh])
   useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
   useEffect(() => { document.title = `${APP_NAME} · News Dashboard` }, [])
