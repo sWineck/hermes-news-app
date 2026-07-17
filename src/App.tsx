@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchNews, testFeed } from './api'
 import { migrateArticleCollection, migrateFeedCollection, serializeCollection, serializeFeeds } from './persistence'
 import { Article, categories, categoryMap, demoArticles, FeedSource, FilterOptions, filterArticlesAdvanced, mergeArticles, CategoryId } from './types'
@@ -63,6 +63,8 @@ function App() {
   const [feedChannel, setFeedChannel] = useState<Exclude<CategoryId, 'all'>>('ai')
   const [feedMessage, setFeedMessage] = useState('')
   const [contactSubmitted, setContactSubmitted] = useState(false)
+  const [lightboxArticle, setLightboxArticle] = useState<Article | null>(null)
+  const lightboxCloseRef = useRef<HTMLButtonElement>(null)
 
   const filterOptions = useMemo<FilterOptions>(() => ({
     search,
@@ -85,6 +87,13 @@ function App() {
   useEffect(() => { if (lastSuccessfulRefresh) localStorage.setItem(REFRESH_STORAGE, JSON.stringify(lastSuccessfulRefresh)) }, [lastSuccessfulRefresh])
   useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
   useEffect(() => { document.title = `${APP_NAME} · News Dashboard` }, [])
+  useEffect(() => {
+    if (!lightboxArticle) return
+    lightboxCloseRef.current?.focus()
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setLightboxArticle(null) }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [lightboxArticle])
 
   async function refresh() {
     const controller = new AbortController()
@@ -121,13 +130,14 @@ function App() {
   }
 
   return <div className="app-shell">
+    <a className="skip-link" href="#main-content">Zum Inhalt springen</a>
     <header className="topbar">
       <button className="brand" onClick={() => setView('dashboard')} aria-label={`${APP_NAME} Startseite`}><span className="brand-mark">H</span><span>Hermes <span className="brand-muted">News App</span></span></button>
       <nav className="main-nav" aria-label="Hauptnavigation">{([['dashboard', 'News'], ['gallery', 'Galerie'], ['rss', 'RSS-Feeds'], ['contact', 'Kontakt'], ['imprint', 'Impressum'], ['privacy', 'Datenschutz']] as [View, string][]).map(([id, label]) => <button key={id} className={view === id ? 'active' : ''} onClick={() => setView(id)}>{label}</button>)}</nav>
       <div className="topbar-actions"><span className={`connection-dot ${statusTone}`} aria-hidden="true" /><span className="topbar-status">{statusLabel}</span><button className="icon-button" onClick={() => setIsDark((value) => !value)} aria-label={isDark ? 'Helles Theme aktivieren' : 'Dunkles Theme aktivieren'}>{isDark ? '☼' : '☾'}</button></div>
     </header>
 
-    {view === 'dashboard' && <main>
+    {view === 'dashboard' && <main id="main-content">
       <section className="hero" aria-labelledby="page-title"><div className="hero-copy"><p className="kicker">HERMES NEWS APP / PERSONAL INTELLIGENCE</p><h1 id="page-title">Die Welt, <em>sortiert.</em></h1><p className="hero-lede">Ein ruhiger Ort für die Signale, die deinen nächsten Gedanken auslösen.</p></div><div className="hero-visual" aria-hidden="true"><span className="hero-orbit orbit-one" /><span className="hero-orbit orbit-two" /><span className="hero-glyph">H</span></div><div className="hero-meta"><span className="meta-label">Monitor status</span><strong>{status === 'success' ? 'Live · just now' : 'Lokaler News-Pool'}</strong><span className={`pulse ${statusTone}`} aria-hidden="true" /></div></section>
       <section className="control-strip" aria-label="News-Steuerung"><label className="search-field"><span aria-hidden="true">⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Signale, Quellen, Themen suchen …" aria-label="Nachrichten durchsuchen" />{search && <button onClick={() => setSearch('')} aria-label="Suche löschen">×</button>}</label><div className="control-actions"><button className="saved-toggle" onClick={() => setShowSaved((value) => !value)} aria-pressed={showSaved} aria-label={`Gespeicherte Artikel ${showSaved ? 'ausblenden' : 'anzeigen'}, ${favorites.length} gespeichert`}>♡ <span>Gespeichert</span><b>{favorites.length}</b></button><button className="refresh-button" onClick={refresh} disabled={status === 'loading'}>{status === 'loading' ? 'Lädt …' : '↻ Aktualisieren'}</button></div></section>
       <section className="filter-panel" aria-label="Filter und Kategorien"><div className="section-label">Curated channels</div><div className="category-list"><button className={`category-chip ${activeCategory === 'all' ? 'active' : ''}`} onClick={() => { setShowSaved(false); setActiveCategory('all') }} aria-pressed={activeCategory === 'all'}><span className="chip-dot" />Alle <b>{articles.length}</b></button>{categories.map((category) => <button key={category.id} className={`category-chip ${activeCategory === category.id ? 'active' : ''}`} onClick={() => { setShowSaved(false); setActiveCategory(category.id) }} aria-pressed={activeCategory === category.id}><span className="chip-dot" style={{ background: category.accent }} />{category.label}<b>{articles.filter((article) => article.category === category.id).length}</b></button>)}</div><div className="filter-options"><label>Zeitraum<select value={days} onChange={(event) => setDays(Number(event.target.value))}><option value="0">Alle Zeit</option><option value="1">Letzte 24 Stunden</option><option value="7">Letzte 7 Tage</option><option value="30">Letzte 30 Tage</option></select></label><label>Sortierung<select value={sort} onChange={(event) => setSort(event.target.value as FilterOptions['sort'])}><option value="newest">Neueste zuerst</option><option value="oldest">Älteste zuerst</option><option value="source">Nach Quelle</option></select></label></div></section>
@@ -138,7 +148,8 @@ function App() {
       <footer className="footer"><span>{APP_NAME} / personal news intelligence</span><span>{lastSuccessfulRefresh ? `Refresh ${timeAgo(lastSuccessfulRefresh, clock)}` : 'Demo-Daten aktiv · Live-Quelle per Aktualisieren'}</span><button onClick={() => setView('privacy')}>Datenschutz</button></footer>
     </main>}
 
-    {view === 'gallery' && <main className="gallery-page"><section className="gallery-intro"><p className="kicker">HERMES NEWS APP / VISUAL INDEX</p><h1>News als <em>Bildfläche.</em></h1><p className="hero-lede">Bilder zuerst, Kontext als Overlay. Öffne jede Kachel, um den Originalartikel zu lesen.</p><div className="gallery-controls"><label className="search-field"><span aria-hidden="true">⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Galerie durchsuchen …" aria-label="Galerie durchsuchen" /></label><select value={days} onChange={(event) => setDays(Number(event.target.value))} aria-label="Galerie-Zeitraum"><option value="0">Alle Zeit</option><option value="1">24 Stunden</option><option value="7">7 Tage</option><option value="30">30 Tage</option></select></div></section><div className="gallery-grid">{galleryArticles.length ? galleryArticles.map((article) => <GalleryCard key={article.id} article={article} />) : <div className="empty-state"><span className="empty-orbit">∅</span><h3>Keine Bildsignale gefunden.</h3><p>Aktualisiere den News-Pool oder passe die Filter an.</p></div>}</div></main>}
+    {view === 'gallery' && <main id="main-content" className="gallery-page"><section className="gallery-intro"><p className="kicker">HERMES NEWS APP / VISUAL INDEX</p><h1>News als <em>Bildfläche.</em></h1><p className="hero-lede">Bilder zuerst, Kontext als Overlay. Öffne jede Kachel für eine fokussierte Vorschau.</p><div className="gallery-controls"><label className="search-field"><span aria-hidden="true">⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Galerie durchsuchen …" aria-label="Galerie durchsuchen" /></label><select value={days} onChange={(event) => setDays(Number(event.target.value))} aria-label="Galerie-Zeitraum"><option value="0">Alle Zeit</option><option value="1">24 Stunden</option><option value="7">7 Tage</option><option value="30">30 Tage</option></select></div></section><div className="gallery-grid">{galleryArticles.length ? galleryArticles.map((article) => <GalleryCard key={article.id} article={article} onOpen={() => setLightboxArticle(article)} />) : <div className="empty-state"><span className="empty-orbit">∅</span><h3>Keine Bildsignale gefunden.</h3><p>Aktualisiere den News-Pool oder passe die Filter an.</p></div>}</div></main>}
+    {lightboxArticle && <div className="lightbox-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setLightboxArticle(null) }}><section className="lightbox" role="dialog" aria-modal="true" aria-labelledby="lightbox-title"><button ref={lightboxCloseRef} className="lightbox-close" onClick={() => setLightboxArticle(null)} aria-label="Galerie-Vorschau schließen">×</button><ArticleMedia article={lightboxArticle} gallery /><div className="lightbox-copy"><p className="kicker">{lightboxArticle.source} / {categoryMap[lightboxArticle.category].label}</p><h2 id="lightbox-title">{lightboxArticle.title}</h2><p>{lightboxArticle.description}</p><a className="refresh-button" href={lightboxArticle.url} target="_blank" rel="noreferrer">Originalartikel öffnen ↗</a></div></section></div>}
 
     {view === 'rss' && <InfoPage eyebrow="SOURCES / RSS" title="Deine Quellen, dein Pool." intro="Füge RSS- oder Atom-Feeds hinzu. Jeder Feed wird vor dem Speichern tatsächlich abgerufen und auf verwertbare Artikel geprüft."><form className="feed-form" onSubmit={addFeed}><label>Feed-Name<input value={feedName} onChange={(event) => setFeedName(event.target.value)} placeholder="z. B. W3C News" /></label><label>RSS-/Atom-URL<input required type="url" value={feedUrl} onChange={(event) => setFeedUrl(event.target.value)} placeholder="https://example.org/feed.xml" /></label><label>Channel<select value={feedChannel} onChange={(event) => setFeedChannel(event.target.value as Exclude<CategoryId, 'all'>)}>{categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select></label><button className="refresh-button" type="submit">Feed testen & speichern</button></form>{feedMessage && <p className="form-message" role="status">{feedMessage}</p>}<div className="feed-list">{feeds.length === 0 ? <div className="empty-state compact"><h3>Noch keine eigenen Feeds.</h3><p>Die eingebauten Live-Quellen funktionieren unabhängig davon weiter.</p></div> : feeds.map((feed) => <article className="feed-row" key={feed.id}><div><strong>{feed.name}</strong><small>{feed.url} · {categoryMap[feed.channel].label} · lokal gespeichert</small></div><span className={`status-badge ${feed.status === 'ready' ? 'success' : feed.status === 'error' ? 'error' : 'idle'}`}>{feed.status === 'ready' ? 'BEREIT' : feed.status === 'error' ? 'FEHLER' : 'UNGETESTET'}</span><button onClick={() => retestFeed(feed)}>Erneut testen</button><button onClick={() => setFeeds((current) => current.filter((item) => item.id !== feed.id))} aria-label={`${feed.name} löschen`}>Löschen</button>{feed.error && <small className="feed-error">{feed.error}</small>}</article>)}</div></InfoPage>}
     {view === 'contact' && <InfoPage eyebrow="HERMES NEWS APP / KONTAKT" title="Sag Hallo." intro="Ein vorbereitetes Kontaktformular und ein Kartenbereich als Platzhalter. Noch werden keine Daten versendet."><div className="contact-layout"><form className="contact-form" onSubmit={(event) => { event.preventDefault(); setContactSubmitted(true) }}><label>Name<input required name="name" autoComplete="name" placeholder="Dein Name" /></label><label>E-Mail<input required type="email" name="email" autoComplete="email" placeholder="name@example.org" /></label><label>Betreff<input name="subject" placeholder="Worum geht es?" /></label><label>Nachricht<textarea required name="message" rows={6} placeholder="Deine Nachricht" /></label><label className="consent"><input type="checkbox" required /> <span>Ich akzeptiere den vorläufigen Datenschutzhinweis.</span></label><button className="refresh-button" type="submit">Nachricht vorbereiten</button>{contactSubmitted && <p className="form-message" role="status">Platzhalter erfolgreich ausgefüllt. Es wurde nichts versendet.</p>}</form><div className="map-placeholder" role="img" aria-label="Platzhalter für eine Karte"><span>MAP PLACEHOLDER</span><strong>Standort wird später ergänzt</strong><small>Keine externe Karten-API geladen.</small></div></div></InfoPage>}
@@ -147,8 +158,8 @@ function App() {
   </div>
 }
 
-function GalleryCard({ article }: { article: Article }) {
-  return <a className="gallery-card" href={article.url} target="_blank" rel="noreferrer" aria-label={`Originalartikel öffnen: ${article.title}`}><ArticleMedia article={article} gallery /><span className="gallery-overlay"><small>{article.source}</small><strong>{article.title}</strong></span></a>
+function GalleryCard({ article, onOpen }: { article: Article; onOpen: () => void }) {
+  return <button className="gallery-card" onClick={onOpen} aria-label={`Galerie-Vorschau öffnen: ${article.title}`}><ArticleMedia article={article} gallery /><span className="gallery-overlay"><small>{article.source}</small><strong>{article.title}</strong></span></button>
 }
 
 function escapeXml(value: string): string {
@@ -157,9 +168,8 @@ function escapeXml(value: string): string {
 
 function createIllustrativeImage(article: Article): string {
   const label = escapeXml(categoryMap[article.category].label.toUpperCase())
-  const title = escapeXml(article.title.slice(0, 46))
   const source = escapeXml(article.source.slice(0, 34))
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" role="img"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#102a22"/><stop offset=".52" stop-color="#1d5740"/><stop offset="1" stop-color="#07110e"/></linearGradient><radialGradient id="r"><stop stop-color="#8cf0bd" stop-opacity=".85"/><stop offset="1" stop-color="#8cf0bd" stop-opacity="0"/></radialGradient></defs><rect width="1200" height="675" fill="url(#g)"/><circle cx="930" cy="120" r="300" fill="url(#r)" opacity=".75"/><path d="M-80 560 C260 300 410 720 730 420 S1140 190 1320 410" fill="none" stroke="#b9f8d2" stroke-opacity=".5" stroke-width="3"/><path d="M-50 630 C280 380 470 780 790 500 S1140 280 1300 500" fill="none" stroke="#8cf0bd" stroke-opacity=".3" stroke-width="18"/><text x="70" y="92" fill="#b9f8d2" font-family="Arial, sans-serif" font-size="25" font-weight="700" letter-spacing="5">HERMES NEWS / ${label}</text><text x="70" y="530" fill="#ffffff" font-family="Arial, sans-serif" font-size="38" font-weight="700">${title}</text><text x="70" y="590" fill="#b9f8d2" font-family="Arial, sans-serif" font-size="20">ILLUSTRATIVE VISUAL · ${source}</text></svg>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" role="img"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#102a22"/><stop offset=".52" stop-color="#1d5740"/><stop offset="1" stop-color="#07110e"/></linearGradient><radialGradient id="r"><stop stop-color="#8cf0bd" stop-opacity=".85"/><stop offset="1" stop-color="#8cf0bd" stop-opacity="0"/></radialGradient></defs><rect width="1200" height="675" fill="url(#g)"/><circle cx="930" cy="120" r="300" fill="url(#r)" opacity=".75"/><path d="M-80 560 C260 300 410 720 730 420 S1140 190 1320 410" fill="none" stroke="#b9f8d2" stroke-opacity=".5" stroke-width="3"/><path d="M-50 630 C280 380 470 780 790 500 S1140 280 1300 500" fill="none" stroke="#8cf0bd" stroke-opacity=".3" stroke-width="18"/><text x="70" y="92" fill="#b9f8d2" font-family="Arial, sans-serif" font-size="25" font-weight="700" letter-spacing="5">HERMES NEWS / ${label}</text><text x="70" y="530" fill="#ffffff" font-family="Arial, sans-serif" font-size="38" font-weight="700">SIGNAL DESK</text><text x="70" y="590" fill="#b9f8d2" font-family="Arial, sans-serif" font-size="20">ILLUSTRATIVE VISUAL · ${source}</text></svg>`
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
 }
 
@@ -175,7 +185,7 @@ function ArticleMedia({ article, gallery = false }: { article: Article; gallery?
 }
 
 function InfoPage({ eyebrow, title, intro, children }: { eyebrow: string; title: string; intro: string; children: React.ReactNode }) {
-  return <main className="info-page"><p className="kicker">{eyebrow}</p><h1>{title}</h1><p className="hero-lede">{intro}</p>{children}</main>
+  return <main id="main-content" className="info-page"><p className="kicker">{eyebrow}</p><h1>{title}</h1><p className="hero-lede">{intro}</p>{children}</main>
 }
 
 function ArticleCard({ article, featured, saved, expanded, onToggle, onExpand }: { article: Article; featured: boolean; saved: boolean; expanded: boolean; onToggle: () => void; onExpand: () => void }) {
