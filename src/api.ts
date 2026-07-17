@@ -2,6 +2,7 @@ import { Article, CategoryId, FeedSource, categoryMap, categorizeArticle, mergeA
 
 const GDELT_ENDPOINT = 'https://api.gdeltproject.org/api/v2/doc/doc'
 const HN_SEARCH_ENDPOINT = 'https://hn.algolia.com/api/v1/search_by_date'
+const RSS_JSON_ENDPOINT = 'https://api.rss2json.com/v1/api.json?rss_url='
 
 type HackerNewsHit = {
   objectID?: string
@@ -139,13 +140,62 @@ export function parseRssXml(xml: string, feed: FeedSource): Article[] {
   return mergeArticles([], articles)
 }
 
+type RssJsonItem = {
+  title?: string
+  link?: string
+  guid?: string
+  description?: string
+  content?: string
+  pubDate?: string
+  thumbnail?: string
+  enclosure?: { link?: string; type?: string }
+}
+
+export function parseRssJson(payload: unknown, feed: FeedSource): Article[] {
+  const data = payload as { status?: string; message?: string; items?: RssJsonItem[] }
+  if (data.status !== 'ok' || !Array.isArray(data.items)) throw new Error(data.message || 'Der RSS-Proxy lieferte keine verwertbaren Daten.')
+  const articles = data.items.map((item): Article | null => {
+    const title = stripMarkup(item.title || '')
+    const url = item.link || item.guid || ''
+    if (!title || !/^https?:\/\//i.test(url)) return null
+    const publishedAt = item.pubDate && !Number.isNaN(Date.parse(item.pubDate)) ? new Date(item.pubDate).toISOString() : new Date().toISOString()
+    return {
+      id: `rss-${feed.id}-${item.guid || url}`,
+      title,
+      description: stripMarkup(item.description || item.content || '') || 'Artikel aus einem konfigurierten RSS-/Atom-Feed.',
+      source: feed.name,
+      url,
+      publishedAt,
+      retrievedAt: new Date().toISOString(),
+      category: feed.channel || categorizeArticle(title, item.description || ''),
+      tag: 'RSS',
+      feedId: feed.id,
+      imageUrl: extractImageUrl({ url: item.enclosure?.link || item.thumbnail }),
+      imageAlt: title,
+    }
+  }).filter((article): article is Article => Boolean(article))
+  if (!articles.length) throw new Error('Der RSS-Proxy lieferte keine verwertbaren Artikel.')
+  return mergeArticles([], articles)
+}
+
+async function fetchViaRssJson(feed: FeedSource, signal?: AbortSignal): Promise<FeedFetchResult> {
+  const response = await fetch(`${RSS_JSON_ENDPOINT}${encodeURIComponent(feed.url)}`, { signal, headers: { Accept: 'application/json' } })
+  if (!response.ok) throw new Error(`Der RSS-Fallback antwortete mit HTTP ${response.status}.`)
+  return { feed, articles: parseRssJson(await response.json(), feed) }
+}
+
 export async function testFeed(feed: FeedSource, signal?: AbortSignal): Promise<FeedFetchResult> {
-  const url = assertSafeFeedUrl(feed.url)
-  const response = await fetch(url, { signal, headers: { Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml' } })
-  if (!response.ok) throw new Error(`${feed.name} antwortete mit HTTP ${response.status}.`)
-  const text = await response.text()
-  const articles = parseRssXml(text, feed)
-  return { feed: { ...feed, status: 'ready', error: undefined, lastSuccessAt: new Date().toISOString() }, articles }
+  assertSafeFeedUrl(feed.url)
+  try {
+    const response = await fetch(feed.url, { signal, headers: { Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml' } })
+    if (!response.ok) throw new Error(`${feed.name} antwortete mit HTTP ${response.status}.`)
+    const articles = parseRssXml(await response.text(), feed)
+    return { feed: { ...feed, status: 'ready', error: undefined, lastSuccessAt: new Date().toISOString() }, articles }
+  } catch (cause) {
+    if (signal?.aborted || (cause instanceof DOMException && cause.name === 'AbortError')) throw cause
+    const fallback = await fetchViaRssJson(feed, signal)
+    return { feed: { ...fallback.feed, status: 'ready', error: undefined, lastSuccessAt: new Date().toISOString() }, articles: fallback.articles }
+  }
 }
 
 export async function fetchConfiguredFeeds(feeds: FeedSource[], signal?: AbortSignal): Promise<FeedFetchResult[]> {
