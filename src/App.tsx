@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { fetchNews, testFeed } from './api'
+import { migrateArticleCollection, serializeCollection } from './persistence'
 import { Article, categories, categoryMap, demoArticles, FeedSource, FilterOptions, filterArticlesAdvanced, mergeArticles, CategoryId } from './types'
 import './styles.css'
 
@@ -9,11 +10,15 @@ const FAVORITE_STORAGE = 'hermes-news-favorites'
 const FEED_STORAGE = 'hermes-news-feeds'
 const REFRESH_STORAGE = 'hermes-news-refresh'
 
-type View = 'dashboard' | 'rss' | 'contact' | 'imprint' | 'privacy'
+type View = 'dashboard' | 'gallery' | 'rss' | 'contact' | 'imprint' | 'privacy'
 type Status = 'idle' | 'loading' | 'success' | 'error'
 
 function loadJson<T>(key: string, fallback: T): T {
   try { return JSON.parse(localStorage.getItem(key) || '') as T } catch { return fallback }
+}
+
+function loadArticles(key: string, fallback: Article[]): Article[] {
+  try { return migrateArticleCollection(JSON.parse(localStorage.getItem(key) || '')) || fallback } catch { return fallback }
 }
 
 function formatDate(value: string) {
@@ -38,8 +43,8 @@ function App() {
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<FilterOptions['sort']>('newest')
   const [days, setDays] = useState(0)
-  const [articles, setArticles] = useState<Article[]>(() => loadJson(ARTICLE_STORAGE, demoArticles))
-  const [favorites, setFavorites] = useState<Article[]>(() => loadJson(FAVORITE_STORAGE, []))
+  const [articles, setArticles] = useState<Article[]>(() => loadArticles(ARTICLE_STORAGE, demoArticles))
+  const [favorites, setFavorites] = useState<Article[]>(() => loadArticles(FAVORITE_STORAGE, []))
   const [feeds, setFeeds] = useState<FeedSource[]>(() => loadJson(FEED_STORAGE, []))
   const [status, setStatus] = useState<Status>('idle')
   const [provider, setProvider] = useState('Lokale Vorschau')
@@ -53,6 +58,7 @@ function App() {
   const [feedUrl, setFeedUrl] = useState('')
   const [feedChannel, setFeedChannel] = useState<Exclude<CategoryId, 'all'>>('ai')
   const [feedMessage, setFeedMessage] = useState('')
+  const [contactSubmitted, setContactSubmitted] = useState(false)
 
   const filterOptions = useMemo<FilterOptions>(() => ({
     search,
@@ -62,16 +68,16 @@ function App() {
     sort,
   }), [activeCategory, days, search, sort])
   const visibleArticles = useMemo(() => filterArticlesAdvanced(showSaved ? favorites : articles, filterOptions), [articles, favorites, filterOptions, showSaved])
-  const sourceNames = useMemo(() => [...new Set(articles.map((article) => article.source))].sort(), [articles])
+  const galleryArticles = useMemo(() => visibleArticles.filter((article) => article.imageUrl || article.description), [visibleArticles])
   const favoriteIds = useMemo(() => new Set(favorites.map((article) => article.id)), [favorites])
   const active = activeCategory === 'all' ? null : categoryMap[activeCategory]
   const statusLabel = status === 'loading' ? 'Aktualisierung läuft' : status === 'error' ? 'Live-Quelle eingeschränkt' : status === 'success' ? 'Live verbunden' : 'Bereit für deinen Feed'
   const statusTone = status === 'success' ? 'success' : status === 'error' ? 'error' : status === 'loading' ? 'loading' : 'idle'
 
   useEffect(() => { document.documentElement.dataset.theme = isDark ? 'dark' : 'light'; localStorage.setItem('hermes-news-theme', isDark ? 'dark' : 'light') }, [isDark])
-  useEffect(() => { localStorage.setItem(ARTICLE_STORAGE, JSON.stringify(articles)) }, [articles])
-  useEffect(() => { localStorage.setItem(FAVORITE_STORAGE, JSON.stringify(favorites)) }, [favorites])
-  useEffect(() => { localStorage.setItem(FEED_STORAGE, JSON.stringify(feeds)) }, [feeds])
+  useEffect(() => { localStorage.setItem(ARTICLE_STORAGE, serializeCollection(articles)) }, [articles])
+  useEffect(() => { localStorage.setItem(FAVORITE_STORAGE, serializeCollection(favorites)) }, [favorites])
+  useEffect(() => { localStorage.setItem(FEED_STORAGE, JSON.stringify(feeds)); localStorage.setItem('hermes-news-storage-version', '2') }, [feeds])
   useEffect(() => { if (lastSuccessfulRefresh) localStorage.setItem(REFRESH_STORAGE, JSON.stringify(lastSuccessfulRefresh)) }, [lastSuccessfulRefresh])
   useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
   useEffect(() => { document.title = `${APP_NAME} · News Dashboard` }, [])
@@ -113,7 +119,7 @@ function App() {
   return <div className="app-shell">
     <header className="topbar">
       <button className="brand" onClick={() => setView('dashboard')} aria-label={`${APP_NAME} Startseite`}><span className="brand-mark">H</span><span>Hermes <span className="brand-muted">News App</span></span></button>
-      <nav className="main-nav" aria-label="Hauptnavigation">{([['dashboard', 'News'], ['rss', 'RSS-Feeds'], ['contact', 'Kontakt'], ['imprint', 'Impressum'], ['privacy', 'Datenschutz']] as [View, string][]).map(([id, label]) => <button key={id} className={view === id ? 'active' : ''} onClick={() => setView(id)}>{label}</button>)}</nav>
+      <nav className="main-nav" aria-label="Hauptnavigation">{([['dashboard', 'News'], ['gallery', 'Galerie'], ['rss', 'RSS-Feeds'], ['contact', 'Kontakt'], ['imprint', 'Impressum'], ['privacy', 'Datenschutz']] as [View, string][]).map(([id, label]) => <button key={id} className={view === id ? 'active' : ''} onClick={() => setView(id)}>{label}</button>)}</nav>
       <div className="topbar-actions"><span className={`connection-dot ${statusTone}`} aria-hidden="true" /><span className="topbar-status">{statusLabel}</span><button className="icon-button" onClick={() => setIsDark((value) => !value)} aria-label={isDark ? 'Helles Theme aktivieren' : 'Dunkles Theme aktivieren'}>{isDark ? '☼' : '☾'}</button></div>
     </header>
 
@@ -128,10 +134,24 @@ function App() {
       <footer className="footer"><span>{APP_NAME} / personal news intelligence</span><span>{lastSuccessfulRefresh ? `Refresh ${timeAgo(lastSuccessfulRefresh, clock)}` : 'Demo-Daten aktiv · Live-Quelle per Aktualisieren'}</span><button onClick={() => setView('privacy')}>Datenschutz</button></footer>
     </main>}
 
-    {view === 'rss' && <InfoPage eyebrow="SOURCES / RSS" title="Deine Quellen, dein Pool." intro="Füge RSS- oder Atom-Feeds hinzu. Jeder Feed wird vor dem Speichern tatsächlich abgerufen und auf verwertbare Artikel geprüft."><form className="feed-form" onSubmit={addFeed}><label>Feed-Name<input value={feedName} onChange={(event) => setFeedName(event.target.value)} placeholder="z. B. W3C News" /></label><label>RSS-/Atom-URL<input required type="url" value={feedUrl} onChange={(event) => setFeedUrl(event.target.value)} placeholder="https://example.org/feed.xml" /></label><label>Channel<select value={feedChannel} onChange={(event) => setFeedChannel(event.target.value as Exclude<CategoryId, 'all'>)}>{categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select></label><button className="refresh-button" type="submit">Feed testen & speichern</button></form>{feedMessage && <p className="form-message" role="status">{feedMessage}</p>}<div className="feed-list">{feeds.length === 0 ? <div className="empty-state compact"><h3>Noch keine eigenen Feeds.</h3><p>Die eingebauten Live-Quellen funktionieren unabhängig davon weiter.</p></div> : feeds.map((feed) => <article className="feed-row" key={feed.id}><div><strong>{feed.name}</strong><small>{feed.url} · {categoryMap[feed.channel].label}</small></div><span className={`status-badge ${feed.status === 'ready' ? 'success' : feed.status === 'error' ? 'error' : 'idle'}`}>{feed.status === 'ready' ? 'BEREIT' : feed.status === 'error' ? 'FEHLER' : 'UNGETESTET'}</span><button onClick={() => retestFeed(feed)}>Erneut testen</button><button onClick={() => setFeeds((current) => current.filter((item) => item.id !== feed.id))} aria-label={`${feed.name} löschen`}>Löschen</button>{feed.error && <small className="feed-error">{feed.error}</small>}</article>)}</div></InfoPage>}
-    {view === 'contact' && <InfoPage eyebrow="HERMES NEWS APP / KONTAKT" title="Sag Hallo." intro="Diese Kontaktseite ist vorbereitet. Ergänze deine gewünschten Kontaktdaten, bevor die App öffentlich als fertige rechtliche Präsenz verwendet wird."><div className="placeholder-card"><strong>Kontaktangaben ausstehend</strong><p>Bitte Betreibername, E-Mail-Adresse und optional eine weitere Kontaktmöglichkeit als sichere, bewusst freigegebene Daten ergänzen.</p></div></InfoPage>}
+    {view === 'gallery' && <main className="gallery-page"><section className="gallery-intro"><p className="kicker">HERMES NEWS APP / VISUAL INDEX</p><h1>News als <em>Bildfläche.</em></h1><p className="hero-lede">Bilder zuerst, Kontext als Overlay. Öffne jede Kachel, um den Originalartikel zu lesen.</p><div className="gallery-controls"><label className="search-field"><span aria-hidden="true">⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Galerie durchsuchen …" aria-label="Galerie durchsuchen" /></label><select value={days} onChange={(event) => setDays(Number(event.target.value))} aria-label="Galerie-Zeitraum"><option value="0">Alle Zeit</option><option value="1">24 Stunden</option><option value="7">7 Tage</option><option value="30">30 Tage</option></select></div></section><div className="gallery-grid">{galleryArticles.length ? galleryArticles.map((article) => <GalleryCard key={article.id} article={article} />) : <div className="empty-state"><span className="empty-orbit">∅</span><h3>Keine Bildsignale gefunden.</h3><p>Aktualisiere den News-Pool oder passe die Filter an.</p></div>}</div></main>}
+
+    {view === 'rss' && <InfoPage eyebrow="SOURCES / RSS" title="Deine Quellen, dein Pool." intro="Füge RSS- oder Atom-Feeds hinzu. Jeder Feed wird vor dem Speichern tatsächlich abgerufen und auf verwertbare Artikel geprüft."><form className="feed-form" onSubmit={addFeed}><label>Feed-Name<input value={feedName} onChange={(event) => setFeedName(event.target.value)} placeholder="z. B. W3C News" /></label><label>RSS-/Atom-URL<input required type="url" value={feedUrl} onChange={(event) => setFeedUrl(event.target.value)} placeholder="https://example.org/feed.xml" /></label><label>Channel<select value={feedChannel} onChange={(event) => setFeedChannel(event.target.value as Exclude<CategoryId, 'all'>)}>{categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select></label><button className="refresh-button" type="submit">Feed testen & speichern</button></form>{feedMessage && <p className="form-message" role="status">{feedMessage}</p>}<div className="feed-list">{feeds.length === 0 ? <div className="empty-state compact"><h3>Noch keine eigenen Feeds.</h3><p>Die eingebauten Live-Quellen funktionieren unabhängig davon weiter.</p></div> : feeds.map((feed) => <article className="feed-row" key={feed.id}><div><strong>{feed.name}</strong><small>{feed.url} · {categoryMap[feed.channel].label} · lokal gespeichert</small></div><span className={`status-badge ${feed.status === 'ready' ? 'success' : feed.status === 'error' ? 'error' : 'idle'}`}>{feed.status === 'ready' ? 'BEREIT' : feed.status === 'error' ? 'FEHLER' : 'UNGETESTET'}</span><button onClick={() => retestFeed(feed)}>Erneut testen</button><button onClick={() => setFeeds((current) => current.filter((item) => item.id !== feed.id))} aria-label={`${feed.name} löschen`}>Löschen</button>{feed.error && <small className="feed-error">{feed.error}</small>}</article>)}</div></InfoPage>}
+    {view === 'contact' && <InfoPage eyebrow="HERMES NEWS APP / KONTAKT" title="Sag Hallo." intro="Ein vorbereitetes Kontaktformular und ein Kartenbereich als Platzhalter. Noch werden keine Daten versendet."><div className="contact-layout"><form className="contact-form" onSubmit={(event) => { event.preventDefault(); setContactSubmitted(true) }}><label>Name<input required name="name" autoComplete="name" placeholder="Dein Name" /></label><label>E-Mail<input required type="email" name="email" autoComplete="email" placeholder="name@example.org" /></label><label>Betreff<input name="subject" placeholder="Worum geht es?" /></label><label>Nachricht<textarea required name="message" rows={6} placeholder="Deine Nachricht" /></label><label className="consent"><input type="checkbox" required /> <span>Ich akzeptiere den vorläufigen Datenschutzhinweis.</span></label><button className="refresh-button" type="submit">Nachricht vorbereiten</button>{contactSubmitted && <p className="form-message" role="status">Platzhalter erfolgreich ausgefüllt. Es wurde nichts versendet.</p>}</form><div className="map-placeholder" role="img" aria-label="Platzhalter für eine Karte"><span>MAP PLACEHOLDER</span><strong>Standort wird später ergänzt</strong><small>Keine externe Karten-API geladen.</small></div></div></InfoPage>}
     {view === 'imprint' && <InfoPage eyebrow="HERMES NEWS APP / IMPRESSUM" title="Transparenz vor Vollständigkeit." intro="Diese Seite enthält bewusst keine erfundenen Betreiberangaben. Sie muss vor einer öffentlichen Nutzung mit den korrekten Impressumsdaten ausgefüllt werden."><div className="placeholder-card"><strong>Impressumsdaten ausstehend</strong><p>Keine Fantangaben: Verantwortliche Stelle, Anschrift und Kontakt werden erst nach deiner Freigabe eingetragen.</p></div></InfoPage>}
     {view === 'privacy' && <InfoPage eyebrow="HERMES NEWS APP / DATENSCHUTZ" title="Daten klar benennen." intro="Die App speichert im aktuellen Prototyp Artikel, Favoriten, RSS-Konfiguration, Theme und Refresh-Zeitpunkt lokal im Browser. Live-Provider erhalten nur die für den Abruf nötigen Requests."><div className="placeholder-card"><strong>Vorläufiger Datenschutzhinweis</strong><p>Vor dem produktiven Einsatz muss dieser Hinweis an Speicherstrategie, Hosting, RSS-Proxy und konkrete Betreiberangaben angepasst werden.</p></div></InfoPage>}
+  </div>
+}
+
+function GalleryCard({ article }: { article: Article }) {
+  return <a className="gallery-card" href={article.url} target="_blank" rel="noreferrer" aria-label={`Originalartikel öffnen: ${article.title}`}><ArticleMedia article={article} gallery /><span className="gallery-overlay"><small>{article.source}</small><strong>{article.title}</strong></span></a>
+}
+
+function ArticleMedia({ article, gallery = false }: { article: Article; gallery?: boolean }) {
+  const [failed, setFailed] = useState(false)
+  const hasImage = Boolean(article.imageUrl) && !failed
+  return <div className={`article-media ${gallery ? 'gallery-media' : ''}`}>
+    {hasImage ? <img src={article.imageUrl} alt={article.imageAlt || ''} loading="lazy" onError={() => setFailed(true)} /> : <div className="media-fallback" role="img" aria-label={`Kein Quellenbild für ${article.title}`}><span>BILD FALLBACK</span><strong>{categoryMap[article.category].label}</strong><small>Kein Quellenbild verfügbar</small></div>}
   </div>
 }
 
@@ -140,7 +160,7 @@ function InfoPage({ eyebrow, title, intro, children }: { eyebrow: string; title:
 }
 
 function ArticleCard({ article, featured, saved, expanded, onToggle, onExpand }: { article: Article; featured: boolean; saved: boolean; expanded: boolean; onToggle: () => void; onExpand: () => void }) {
-  return <article className={`article-card ${featured ? 'featured' : ''} ${expanded ? 'is-expanded' : ''}`}>{featured && <div className="featured-poster" aria-hidden="true"><span>LIVE<br /><b>SCAN</b></span><i>↗</i></div>}<div className="card-top"><span className="article-tag">{article.tag}</span><button className={`save-button ${saved ? 'saved' : ''}`} onClick={onToggle} aria-label={saved ? 'Artikel aus gespeicherten entfernen' : 'Artikel speichern'} aria-pressed={saved}>{saved ? '♥' : '♡'}</button></div><div className="card-body"><p className="article-date">{formatDate(article.publishedAt)} · {article.source}</p><h3><a href={article.url} target="_blank" rel="noreferrer">{article.title}</a></h3><p id={`description-${article.id}`} className="article-description">{article.description}</p>{article.description.length > 180 && <button className="expand-button" onClick={onExpand} aria-expanded={expanded} aria-controls={`description-${article.id}`}>{expanded ? 'Weniger anzeigen ↑' : 'Mehr anzeigen ↓'}</button>}</div><div className="card-footer"><span>{categoryMap[article.category].label}</span><a href={article.url} target="_blank" rel="noreferrer" aria-label={`Originalartikel öffnen: ${article.title}`}>Original ↗</a></div></article>
+  return <article className={`article-card ${featured ? 'featured' : ''} ${expanded ? 'is-expanded' : ''}`}><ArticleMedia article={article} /><div className="card-top"><span className="article-tag">{article.tag}</span><button className={`save-button ${saved ? 'saved' : ''}`} onClick={onToggle} aria-label={saved ? 'Artikel aus gespeicherten entfernen' : 'Artikel speichern'} aria-pressed={saved}>{saved ? '♥' : '♡'}</button></div><div className="card-body"><p className="article-date">{formatDate(article.publishedAt)} · {article.source}</p><h3><a href={article.url} target="_blank" rel="noreferrer">{article.title}</a></h3><p id={`description-${article.id}`} className="article-description">{article.description}</p>{article.description.length > 180 && <button className="expand-button" onClick={onExpand} aria-expanded={expanded} aria-controls={`description-${article.id}`}>{expanded ? 'Weniger anzeigen ↑' : 'Mehr anzeigen ↓'}</button>}</div><div className="card-footer"><span>{categoryMap[article.category].label}</span><a href={article.url} target="_blank" rel="noreferrer" aria-label={`Originalartikel öffnen: ${article.title}`}>Original ↗</a></div></article>
 }
 
 export default App
