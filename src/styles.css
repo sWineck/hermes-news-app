@@ -156,8 +156,9 @@ main { max-width: 1400px; margin: auto; padding: 0 clamp(18px, 5vw, 76px) 36px; 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
 
 /* Media-first cards, visual index, and contact placeholder */
-.article-media { width: 100%; aspect-ratio: 16 / 8; overflow: hidden; background: var(--surface-soft); border-bottom: 1px solid var(--line); }
+.article-media { position: relative; width: 100%; aspect-ratio: 16 / 8; overflow: hidden; background: var(--surface-soft); border-bottom: 1px solid var(--line); }
 .article-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.image-fallback-label { position: absolute; left: 14px; bottom: 12px; max-width: calc(100% - 28px); padding: 6px 8px; border: 1px solid rgba(255,255,255,.35); border-radius: 6px; background: rgba(0,0,0,.6); color: #fff; font-size: 9px; line-height: 1.2; letter-spacing: .08em; font-weight: 800; }
 .media-fallback { height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; padding: 18px; color: var(--text); background: radial-gradient(circle at 75% 25%, color-mix(in srgb, var(--accent) 35%, transparent), transparent 35%), linear-gradient(135deg, var(--surface-soft), var(--surface)); }
 .media-fallback span, .media-fallback small { color: var(--subtle); font-size: 9px; letter-spacing: .16em; text-transform: uppercase; font-weight: 800; }
 .media-fallback strong { font-size: 22px; letter-spacing: -.04em; }
