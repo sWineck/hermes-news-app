@@ -151,11 +151,26 @@ function GalleryCard({ article }: { article: Article }) {
   return <a className="gallery-card" href={article.url} target="_blank" rel="noreferrer" aria-label={`Originalartikel öffnen: ${article.title}`}><ArticleMedia article={article} gallery /><span className="gallery-overlay"><small>{article.source}</small><strong>{article.title}</strong></span></a>
 }
 
+function escapeXml(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&apos;', '"': '&quot;' })[character] || character)
+}
+
+function createIllustrativeImage(article: Article): string {
+  const label = escapeXml(categoryMap[article.category].label.toUpperCase())
+  const title = escapeXml(article.title.slice(0, 46))
+  const source = escapeXml(article.source.slice(0, 34))
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" role="img"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#102a22"/><stop offset=".52" stop-color="#1d5740"/><stop offset="1" stop-color="#07110e"/></linearGradient><radialGradient id="r"><stop stop-color="#8cf0bd" stop-opacity=".85"/><stop offset="1" stop-color="#8cf0bd" stop-opacity="0"/></radialGradient></defs><rect width="1200" height="675" fill="url(#g)"/><circle cx="930" cy="120" r="300" fill="url(#r)" opacity=".75"/><path d="M-80 560 C260 300 410 720 730 420 S1140 190 1320 410" fill="none" stroke="#b9f8d2" stroke-opacity=".5" stroke-width="3"/><path d="M-50 630 C280 380 470 780 790 500 S1140 280 1300 500" fill="none" stroke="#8cf0bd" stroke-opacity=".3" stroke-width="18"/><text x="70" y="92" fill="#b9f8d2" font-family="Arial, sans-serif" font-size="25" font-weight="700" letter-spacing="5">HERMES NEWS / ${label}</text><text x="70" y="530" fill="#ffffff" font-family="Arial, sans-serif" font-size="38" font-weight="700">${title}</text><text x="70" y="590" fill="#b9f8d2" font-family="Arial, sans-serif" font-size="20">ILLUSTRATIVE VISUAL · ${source}</text></svg>`
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+}
+
 function ArticleMedia({ article, gallery = false }: { article: Article; gallery?: boolean }) {
   const [failed, setFailed] = useState(false)
-  const hasImage = Boolean(article.imageUrl) && !failed
+  const fallbackUrl = useMemo(() => createIllustrativeImage(article), [article])
+  const hasSourceImage = Boolean(article.imageUrl) && !failed
+  const imageUrl = hasSourceImage ? article.imageUrl : fallbackUrl
   return <div className={`article-media ${gallery ? 'gallery-media' : ''}`}>
-    {hasImage ? <img src={article.imageUrl} alt={article.imageAlt || ''} loading="lazy" onError={() => setFailed(true)} /> : <div className="media-fallback" role="img" aria-label={`Kein Quellenbild für ${article.title}`}><span>BILD FALLBACK</span><strong>{categoryMap[article.category].label}</strong><small>Kein Quellenbild verfügbar</small></div>}
+    <img src={imageUrl} alt={hasSourceImage ? (article.imageAlt || article.title) : `Illustrative Visualisierung für ${article.title}`} loading="lazy" onError={hasSourceImage ? () => setFailed(true) : undefined} />
+    {!hasSourceImage && <span className="image-fallback-label">ILLUSTRATIVE VISUALISIERUNG · KEIN QUELLENBILD</span>}
   </div>
 }
 
