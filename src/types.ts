@@ -73,13 +73,14 @@ export function normalizeGdeltArticle(raw: Record<string, unknown>): Article | n
   const description = typeof raw.seendate === 'string' ? `Im GDELT-Monitor seit ${raw.seendate}.` : 'Aktuelle Meldung aus dem globalen News-Monitor.'
   const source = typeof raw.domain === 'string' ? raw.domain : 'GDELT Monitor'
   const publishedAt = typeof raw.seendate === 'string' ? parseGdeltDate(raw.seendate) : new Date().toISOString()
+  const imageCandidate = [raw.socialimage, raw.imageurl, raw.image].find((value): value is string => typeof value === 'string' && /^https?:\/\//i.test(value))
   return {
     id: url,
     title,
     description,
     source,
     url,
-    imageUrl: typeof raw.socialimage === 'string' && raw.socialimage.startsWith('http') ? raw.socialimage : undefined,
+    imageUrl: imageCandidate,
     imageAlt: title,
     publishedAt,
     retrievedAt: new Date().toISOString(),
