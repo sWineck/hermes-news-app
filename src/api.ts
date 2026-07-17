@@ -100,7 +100,10 @@ export function extractImageUrl(value: { url?: string | null; href?: string | nu
 }
 
 function xmlImageUrl(node: Element): string | undefined {
-  const media = node.querySelector('media\:content, media\:thumbnail, enclosure')
+  const mediaNamespace = 'http://search.yahoo.com/mrss/'
+  const media = node.querySelector('enclosure')
+    || node.getElementsByTagNameNS(mediaNamespace, 'content')[0]
+    || node.getElementsByTagNameNS(mediaNamespace, 'thumbnail')[0]
   const attribute = extractImageUrl({ url: media?.getAttribute('url'), href: media?.getAttribute('href') })
   if (attribute) return attribute
   const image = node.querySelector('image, thumbnail')?.textContent?.trim()
