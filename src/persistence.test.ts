@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { migrateArticleCollection, serializeCollection, STORAGE_VERSION } from './persistence'
+import { migrateArticleCollection, migrateFeedCollection, serializeCollection, serializeFeeds, STORAGE_VERSION } from './persistence'
 
 describe('versioned client persistence', () => {
   it('migrates legacy article arrays without losing feed fields', () => {
@@ -12,5 +12,11 @@ describe('versioned client persistence', () => {
     const result = JSON.parse(serializeCollection([article]))
     expect(result.version).toBe(STORAGE_VERSION)
     expect(result.items).toHaveLength(1)
+  })
+
+  it('migrates and serializes feed configuration with the same version envelope', () => {
+    const feed = { id: 'feed-1', name: 'Example', url: 'https://example.com/feed.xml', channel: 'ai' as const, enabled: true, status: 'ready' as const }
+    expect(migrateFeedCollection([feed])).toEqual([feed])
+    expect(JSON.parse(serializeFeeds([feed]))).toMatchObject({ version: STORAGE_VERSION, items: [feed] })
   })
 })
